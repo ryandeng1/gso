@@ -36,9 +36,66 @@ class GSOInstance:
         return f"https://github.com/{self.repo}"
 
     @property
+    def install_commands_debug(self):
+        if "numpy" in self.repo_url:
+            return [
+                # "git clean -xfd",
+                "uv venv --python 3.11",
+                "source .venv/bin/activate",
+                "which python",
+                "python --version",
+                "git submodule update --init",
+                # "(uv pip install . --config-settings=setup-args=\"-Dbuildtype=debugoptimized\" --reinstall) || (sed -Ei 's/Cython>=3\\.0(\\.[0-9]+)?/Cython>=3.0,<3.1/I' pyproject.toml && uv pip install . --config-settings=setup-args=\"-Dbuildtype=debugoptimized\" --reinstall) || (git clean -xfd && uv venv --python 3.10 && source .venv/bin/activate && uv pip install \"setuptools<=59.8.0\" \"cython<0.30\" && CFLAGS=\"-g -O2\" CXXFLAGS=\"-g -O2\" uv run python setup.py build_ext --inplace)",
+                "(uv pip install . --config-settings=setup-args=\"-Dbuildtype=debugoptimized\" --reinstall) || (sed -Ei 's/Cython>=3\\.0(\\.[0-9]+)?/Cython>=3.0,<3.1/I' pyproject.toml && uv pip install . --config-settings=setup-args=\"-Dbuildtype=debugoptimized\" --reinstall) || (uv venv --python 3.10 && source .venv/bin/activate && uv pip install \"setuptools<=59.8.0\" \"cython<0.30\" && CFLAGS=\"-g -O2\" CXXFLAGS=\"-g -O2\" uv run python setup.py build_ext --inplace)",
+                "uv pip install requests dill pillow",
+                "uv pip show numpy"
+            ]
+    
+        if "pandas" in self.repo_url:
+            return [
+                # "git clean -xfd",
+                'sed -Ei \'s/"setuptools[^"]*"/"setuptools<82"/\' pyproject.toml',
+                "uv venv --python 3.10",
+                "source .venv/bin/activate",
+                "which python",
+                "python --version",
+                "uv pip install . --config-settings=setup-args=\"-Dbuildtype=debugoptimized\" --reinstall",
+                "uv pip install requests dill \"numpy<2.0\"",
+                "uv pip show pandas",
+            ]
+
+        if "tokenizers" in self.repo_url:
+            return [
+                # 'curl -LsSf https://astral.sh/uv/0.5.4/install.sh | sh', 
+                'curl https://sh.rustup.rs -sSf | sh -s -- -y && export PATH="$HOME/.cargo/bin:$PATH"', 
+                'uv venv --python 3.9', 'source .venv/bin/activate', 
+                '. "$HOME/.cargo/env"', 
+                'which python', 
+                'python --version', 
+                'uv pip install "maturin>=1.0,<2.0"', 
+                'export RUSTFLAGS="-A invalid_reference_casting -g -C force-frame-pointers=yes"', 
+                "export CARGO_PROFILE_RELEASE_DEBUG=2",
+                "export CARGO_PROFILE_RELEASE_STRIP=none",
+                "export CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off",
+                'uv pip install ./bindings/python --reinstall', 
+                'uv pip install requests dill datasets==3.5.0 tiktoken scikit-learn', 
+                'uv pip show tokenizers'
+            ]
+
+        return self.install_commands
+
+    @property
     def install_repo_script(self):
         env_name = "testbed"
         repo_directory = f"/{env_name}"
+
+        # Pin setuptools<82 in build isolation to preserve pkg_resources
+        # for legacy setup.py projects (setuptools 82+ removed pkg_resources)
+        build_constraint_setup = [
+            "echo 'setuptools<82' > /tmp/uv_build_constraints.txt",
+            "export UV_BUILD_CONSTRAINT=/tmp/uv_build_constraints.txt",
+        ]
+
         repo_setup = [
             f"git clone -o origin {self.repo_url} {repo_directory}",
             f"chmod -R 777 {repo_directory}",  # nonroot user can run tests
@@ -48,9 +105,22 @@ class GSOInstance:
             f"git remote remove origin",
         ]
 
+        repos_with_c = ["numpy", "pandas"]
+        for repo in repos_with_c:
+            if repo in self.repo_url:
+                return (
+                    "\n".join(
+                        ["#!/bin/bash", "set -euxo pipefail"]
+                        + build_constraint_setup
+                        + repo_setup
+                        + self.install_commands_debug
+                    )
+                    + "\n"
+                )
         return (
             "\n".join(
                 ["#!/bin/bash", "set -euxo pipefail"]
+                + build_constraint_setup
                 + repo_setup
                 + self.install_commands
             )

@@ -120,7 +120,7 @@ def build_image(
         raise e
     except docker.errors.BuildError as e:
         logger.error(f"docker.errors.BuildError during {image_name}: {e}")
-        raise e
+        raise RuntimeError(f"docker.errors.BuildError during {image_name}: {e}") from None
     except Exception as e:
         logger.error(f"Error building image {image_name}: {e}")
         raise e
